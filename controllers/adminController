@@ -1,0 +1,187 @@
+const Users = require("../models/usersModel")
+const formMaster = require("../models/formMasterModel")
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+
+// Register User
+exports.register = async(req, res) => {
+    const { name, email, password, confirm_password } = req.body;
+    // console.log(req.body)
+    if(password !== confirm_password) return res.status(400).json({msg: "Password and Confirm Password do not match"});
+    try {
+        let user = await Users.create({
+            name: name,
+            email: email,
+            password: password
+        });
+        let lastInsertId = user.id;
+        // console.log(user.id)
+        const accessToken = jwt.sign({lastInsertId, name, email}, process.env.ACCESS_TOKEN_SECRET,{
+            expiresIn: process.env.ACCESS_TOKEN_EXPIRE
+        });
+        const refreshToken = jwt.sign({lastInsertId, name, email}, process.env.REFRESH_TOKEN_SECRET,{
+            expiresIn: process.env.REFRESH_TOKEN_EXPIRE
+        });
+        await Users.update({refresh_token: refreshToken},{
+            where:{
+                id: lastInsertId
+            }
+        });
+        let userInfo = {
+            id:lastInsertId,
+            name:user.name,
+            access_token:accessToken
+        }
+        res.json({msg: "Registration Successful",error:false,data:userInfo});
+    } catch (error) {
+        const errObj = {};
+        error.errors.map( er => {
+            errObj[er.path] = er.message;
+        })
+        return res.status(400).json({msg: "", error: true, errormsg: errObj});
+        // console.log(errObj);
+    }
+}
+
+// Get all Users
+exports.getUsers = async (req, res)=>{
+    try {
+        const users = await Users.findAll({
+            attributes:['id','name','email']
+        });
+        res.json(users);
+    } catch (error) {
+        console.log(error);
+    }      
+}
+
+// Get User Details
+exports.getUserDetails = async (req, res)=>{
+    try {
+        let userId = req?.params?.id;
+        const users = await Users.findOne({
+            attributes:['id','name','email'],        
+            where: { id: userId }
+        });
+        res.json(users);
+    } catch (error) {
+        console.log(error);
+    }      
+}
+
+// Update User
+exports.updateUser = async(req, res) => {
+    try {
+        const { name } = req.body;
+        let userId = req?.params?.id;
+
+        let user = await Users.update({
+            name: name
+        }, 
+        {
+            where: {
+                id: userId
+            }
+        });        
+        // console.log(user.id)
+        let userInfo = {
+            name: name,
+        }
+        res.json({msg: "Details Updated", error:false, data: userInfo});
+    } catch (error) {
+        const errObj = {};
+        error.errors.map( er => {
+            errObj[er.path] = er.message;
+        })
+        return res.status(400).json({msg: "Error!", error: true, errormsg: errObj});
+        // console.log(errObj);
+    }
+}
+
+// Delete User
+exports.deleteUser = async(req, res) => {
+    let userId = req.params.id;
+    try {
+        let user = await Users.destroy({ where: { id: userId } });
+        res.json({msg: "User Deleted", error: false, data: user});
+    } catch (error) {
+        const errObj = {};
+        error.errors.map( er => {
+            errObj[er.path] = er.message;
+        })
+        return res.status(400).json({msg: "", error: true, errormsg: errObj});
+        // console.log(errObj);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+
+// Login APi
+exports.login = async(req, res) => {
+    try {
+        const user = await Users.findAll({
+            where:{
+                email: req.body.email
+            }
+        });
+        if(user.length == 0)   
+            return res.status(400).json({msg: "Invalid Email Id.",error: false, errormsg: ''});
+
+        const match = await bcrypt.compare(req.body.password.toString(), user[0].password.toString());
+        if(!match) 
+            return res.status(400).json({msg: "Invalid Credentials.", error: false, errormsg:''});
+
+        const userId = user[0].id;
+        const name = user[0].name;
+        const email = user[0].email;
+        const accessToken = jwt.sign({userId, name, email}, process.env.ACCESS_TOKEN_SECRET,{
+            expiresIn: process.env.ACCESS_TOKEN_EXPIRE
+        });
+        const refreshToken = jwt.sign({userId, name, email}, process.env.REFRESH_TOKEN_SECRET,{
+            expiresIn: process.env.REFRESH_TOKEN_EXPIRE
+        });
+        await Users.update({refresh_token: refreshToken},{
+            where:{
+                id: userId
+            }
+        });
+        // res.cookie('refreshToken', refreshToken,{
+        //     httpOnly: true,
+        //     maxAge: 24 * 60 * 60 * 1000
+        // });
+        let userInfo = {
+            id:userId,
+            name:name,
+            access_token:accessToken
+        }
+        res.json({error:false,msg: "Login Successful", data: userInfo});
+    } catch (error) {
+        // const errObj = {};
+        // error.errors.map( er => {
+        //     errObj[er.path] = er.message;
+        // })
+        // return res.status(400).json({msg: "",error:true,errormsg:errObj});
+        console.log(error)
+        res.status(404).json({error:true,msg:"Email not found"});
+    }
+}
+
+// Form Master APi
+exports.storeFormMaster = (req, res) => {
+    let {template,step_id,fields,rules,preference_id} = req.body;
+    console.log(template)
+    try {
+        let formMasterSave = formMaster.create({
+            template: template,
+            step_id: step_id,
+            fields: fields,
+            rules: rules,
+            preference_id: preference_id,
+        });
+        // console.log(formMasterSave)
+        res.json({error:false,msg: "Form Details saved successfully."});
+    } catch (error) {
+        console.log(error)
+        res.status(404).json({msg:error});
+    }
+}
