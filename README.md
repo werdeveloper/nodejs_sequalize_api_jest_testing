@@ -1,0 +1,1 @@
+# nodejs_sequalize_api_jest_testing
